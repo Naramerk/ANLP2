@@ -1,7 +1,6 @@
 # Planning Agent - helps with planning
 from src.config import llm
-from src.models import AgentState
-from src.tools.memory_manager import MemoryManager
+from src.models import AgentState, SessionMemory
 from langchain_core.messages import HumanMessage, SystemMessage
 
 PLANNER_PROMPT = """You are Planning Agent - planning expert and task decomposition.
@@ -50,6 +49,47 @@ Structure the plan as follows:
 """
 
 
+def _retrieve_history_from_memory(memory: SessionMemory, last_n: int = 5) -> str:
+    """Get last N queries from SessionMemory
+
+    Args:
+        memory: SessionMemory object
+        last_n: Number of last queries
+
+    Returns:
+        Formatted string with query history
+    """
+    recent = memory.queries[-last_n:] if memory.queries else []
+    if not recent:
+        return "Query history is empty"
+    return "\n".join([f"- [{q.timestamp}] ({q.agent_route or 'unknown'}): {q.text}" for q in recent])
+
+
+def _get_context_for_agent_from_memory(memory: SessionMemory, agent_name: str, max_items: int = 3) -> str:
+    """Get relevant context for agent from SessionMemory
+
+    Args:
+        memory: SessionMemory object
+        agent_name: Agent name
+        max_items: Maximum context items
+
+    Returns:
+        Context for agent
+    """
+    # Get queries processed by this agent
+    agent_queries = [q for q in memory.queries if q.agent_route == agent_name]
+    recent = agent_queries[-max_items:] if agent_queries else []
+
+    if not recent:
+        return f"First interaction with agent {agent_name}"
+
+    context_lines = [f"Previous queries to {agent_name}:"]
+    for q in recent:
+        context_lines.append(f"  - {q.text}")
+
+    return "\n".join(context_lines)
+
+
 def planner_node(state: AgentState) -> AgentState:
     """Planning Agent node - creates plans and decomposes tasks
 
@@ -60,13 +100,17 @@ def planner_node(state: AgentState) -> AgentState:
         Updated state with plan
     """
     user_input = state['user_input']
+    
+    memory = state.get('memory')
+    if memory is None:
+        from src.models import SessionMemory
+        memory = SessionMemory(session_id=state.get('metadata', {}).get('session_id', 'default'))
 
-    # Get history from memory
-    memory_manager = MemoryManager()
-    history = memory_manager.retrieve_history(last_n=3)
+    # Get history from state memory
+    history = _retrieve_history_from_memory(memory, last_n=3)
 
     # Also get context specific to planner
-    agent_context = memory_manager.get_context_for_agent('planner', max_items=2)
+    agent_context = _get_context_for_agent_from_memory(memory, 'planner', max_items=2)
 
     # Form history context
     if history and history != "Query history is empty":
@@ -90,19 +134,17 @@ def planner_node(state: AgentState) -> AgentState:
     # Log tool calls
     state['tool_calls_log'].append({
         "agent": "planner",
-        "tool": "memory_manager.retrieve_history",
+        "tool": "memory.retrieve_history",
         "retrieved_items": 3,
         "history_available": history != "Query history is empty"
     })
     
     state['tool_calls_log'].append({
         "agent": "planner",
-        "tool": "memory_manager.get_context_for_agent",
+        "tool": "memory.get_context_for_agent",
         "agent_name": "planner"
     })
     
-    # Save query to memory for future sessions
-    memory_manager.add_query(user_input, agent_route='planner')
     
     return state
 
