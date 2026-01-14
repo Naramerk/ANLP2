@@ -164,16 +164,18 @@ def run_demo() -> None:
 
         print(f"\nTotal tool calls: {total_tools}")
         print(f"   Average per test: {total_tools / len(successful_tests):.1f}")
-        # Session history
+        # Session history 
         print_separator("SESSION HISTORY", 40)
-        history = memory.retrieve_history(last_n=10)
+        # Create new MemoryManager to load latest data from file
+        memory_updated = MemoryManager(session_id)
+        history = memory_updated.retrieve_history(last_n=10)
         if history and history != "Query history is empty":
             print(history)
         else:
             print("History is empty")
 
         # Session summary
-        summary = memory.get_session_summary()
+        summary = memory_updated.get_session_summary()
         print("\nSession summary:")
         for key, value in summary.items():
             print(f"   {key}: {value}")
