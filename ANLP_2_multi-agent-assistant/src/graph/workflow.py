@@ -9,7 +9,7 @@ from src.agents.supervisor import supervisor_node
 
 
 def route_after_classification(state: AgentState) -> str:
-    """Determines next node based on classification
+    """Determines next node based on classification - routes to first agent
 
     Args:
         state: Current state with classification results
@@ -22,8 +22,7 @@ def route_after_classification(state: AgentState) -> str:
     if not classified_agents:
         return "supervisor"
 
-    # Take first agent from list
-    # (for simplicity - sequential execution)
+    # Get first agent to execute
     first_agent = classified_agents[0]
 
     # Mapping to node names
@@ -35,6 +34,35 @@ def route_after_classification(state: AgentState) -> str:
     }
 
     return agent_to_node.get(first_agent, "supervisor")
+
+
+def route_to_next_agent(state: AgentState) -> str:
+    """Routes to next unexecuted agent or supervisor if all agents executed
+
+    Args:
+        state: Current agent system state
+
+    Returns:
+        Name of next node to execute
+    """
+    classified_agents = state.get('classified_agents', [])
+    intermediate_responses = state.get('intermediate_responses', {})
+    
+    # Agent-to-node mapping
+    agent_to_node = {
+        "research_specialist": "research_specialist",
+        "coding_helper": "coding_helper",
+        "planner": "planner",
+        "supervisor": "supervisor"
+    }
+
+    # Find first agent that hasn't been executed yet (no response in intermediate_responses)
+    for agent in classified_agents:
+        if agent not in intermediate_responses and agent in agent_to_node:
+            return agent_to_node[agent]
+
+    # All agents executed (all have responses), route to supervisor
+    return "supervisor"
 
 
 def create_workflow() -> StateGraph:
@@ -68,10 +96,37 @@ def create_workflow() -> StateGraph:
         }
     )
 
-    # After each specialized agent -> supervisor for synthesis
-    workflow.add_edge("research_specialist", "supervisor")
-    workflow.add_edge("coding_helper", "supervisor")
-    workflow.add_edge("planner", "supervisor")
+    # After each specialized agent -> route to next agent or supervisor
+    workflow.add_conditional_edges(
+        "research_specialist",
+        route_to_next_agent,
+        {
+            "research_specialist": "research_specialist",
+            "coding_helper": "coding_helper",
+            "planner": "planner",
+            "supervisor": "supervisor"
+        }
+    )
+    workflow.add_conditional_edges(
+        "coding_helper",
+        route_to_next_agent,
+        {
+            "research_specialist": "research_specialist",
+            "coding_helper": "coding_helper",
+            "planner": "planner",
+            "supervisor": "supervisor"
+        }
+    )
+    workflow.add_conditional_edges(
+        "planner",
+        route_to_next_agent,
+        {
+            "research_specialist": "research_specialist",
+            "coding_helper": "coding_helper",
+            "planner": "planner",
+            "supervisor": "supervisor"
+        }
+    )
 
     # Supervisor -> END (completion)
     workflow.add_edge("supervisor", END)
